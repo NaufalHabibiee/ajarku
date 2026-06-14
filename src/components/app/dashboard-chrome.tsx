@@ -101,9 +101,9 @@ export function DashboardChrome({
           )}
         >
           <Link
-            href="/dashboard"
+            href="/"
             onClick={() => setOpen(false)}
-            aria-label="AjarKu"
+            aria-label="AjarKu — kembali ke beranda"
           >
             <SidebarLogo collapsed={isCollapsed} />
           </Link>
