@@ -1,4 +1,11 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {};
+const nextConfig = {
+  webpack: (config, { isServer }) => {
+    config.externals.push({
+      '@supabase/supabase-js': '@supabase/supabase-js',
+    });
+    return config;
+  },
+};
 
-export default nextConfig;
+module.exports = nextConfig;
