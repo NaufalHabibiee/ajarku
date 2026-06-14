@@ -67,82 +67,90 @@ export async function syncNotifications(
 ): Promise<void> {
   const now = new Date();
 
-  // 1) Recent announcements -> notification per announcement.
-  const announcements = await prisma.announcement.findMany({
-    where: { tenantId: user.tenantId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  // Fetch all source rows in parallel.
+  const [announcements, replies, soon] = await Promise.all([
+    prisma.announcement.findMany({
+      where: { tenantId: user.tenantId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    prisma.forumReply.findMany({
+      where: {
+        thread: { tenantId: user.tenantId, userId: user.id },
+        userId: { not: user.id },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      include: { thread: { select: { id: true, title: true } } },
+    }),
+    prisma.liveSession.findMany({
+      where: {
+        tenantId: user.tenantId,
+        scheduledAt: { gt: now, lte: new Date(now.getTime() + 60 * 60 * 1000) },
+      },
+    }),
+  ]);
+
+  // Build all upserts, then run them concurrently (cuts round-trips on a
+  // far-away DB from ~25 sequential to one parallel batch).
+  const jobs: Promise<unknown>[] = [];
+
   for (const a of announcements) {
-    await createNotification({
-      tenantId: user.tenantId,
-      userId: user.id,
-      type: "announcement",
-      title: a.title,
-      body: a.body,
-      refId: a.id,
-      link: "/dashboard#pengumuman",
-    });
+    jobs.push(
+      createNotification({
+        tenantId: user.tenantId,
+        userId: user.id,
+        type: "announcement",
+        title: a.title,
+        body: a.body,
+        refId: a.id,
+        link: "/dashboard#pengumuman",
+      })
+    );
   }
-
-  // 2) Replies by others on threads the user authored.
-  const replies = await prisma.forumReply.findMany({
-    where: {
-      thread: { tenantId: user.tenantId, userId: user.id },
-      userId: { not: user.id },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-    include: { thread: { select: { id: true, title: true } } },
-  });
   for (const r of replies) {
-    await createNotification({
-      tenantId: user.tenantId,
-      userId: user.id,
-      type: "forum_reply",
-      title: "Balasan baru di diskusimu",
-      body: `Ada balasan baru di "${r.thread.title}".`,
-      refId: r.id,
-      link: `/community/${r.thread.id}`,
-    });
+    jobs.push(
+      createNotification({
+        tenantId: user.tenantId,
+        userId: user.id,
+        type: "forum_reply",
+        title: "Balasan baru di diskusimu",
+        body: `Ada balasan baru di "${r.thread.title}".`,
+        refId: r.id,
+        link: `/community/${r.thread.id}`,
+      })
+    );
   }
-
-  // 3) Streak at risk: learned before today but streak still alive.
   if (user.currentStreak > 0) {
     const todayKey = wibDayKey(now);
     const lastKey = user.lastLearnedAt ? wibDayKey(user.lastLearnedAt) : null;
     if (lastKey !== todayKey) {
-      await createNotification({
-        tenantId: user.tenantId,
-        userId: user.id,
-        type: "streak_risk",
-        title: "Streak kamu dalam bahaya!",
-        body: `Kamu belum belajar hari ini! Streak ${user.currentStreak} hari kamu akan hilang 😱`,
-        refId: `streak-${todayKey}`,
-        link: "/learn",
-      });
+      jobs.push(
+        createNotification({
+          tenantId: user.tenantId,
+          userId: user.id,
+          type: "streak_risk",
+          title: "Streak kamu dalam bahaya!",
+          body: `Kamu belum belajar hari ini! Streak ${user.currentStreak} hari kamu akan hilang 😱`,
+          refId: `streak-${todayKey}`,
+          link: "/learn",
+        })
+      );
     }
   }
-
-  // 4) Live sessions starting within the next hour.
-  const soon = await prisma.liveSession.findMany({
-    where: {
-      tenantId: user.tenantId,
-      scheduledAt: {
-        gt: now,
-        lte: new Date(now.getTime() + 60 * 60 * 1000),
-      },
-    },
-  });
   for (const s of soon) {
-    await createNotification({
-      tenantId: user.tenantId,
-      userId: user.id,
-      type: "live_soon",
-      title: "Live session sebentar lagi!",
-      body: `"${s.title}" akan dimulai dalam waktu kurang dari 1 jam.`,
-      refId: s.id,
-      link: "/live",
-    });
+    jobs.push(
+      createNotification({
+        tenantId: user.tenantId,
+        userId: user.id,
+        type: "live_soon",
+        title: "Live session sebentar lagi!",
+        body: `"${s.title}" akan dimulai dalam waktu kurang dari 1 jam.`,
+        refId: s.id,
+        link: "/live",
+      })
+    );
   }
+
+  await Promise.all(jobs);
 }
