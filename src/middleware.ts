@@ -74,7 +74,8 @@ export async function middleware(request: NextRequest) {
   const hasTenantContext =
     Boolean(slug) ||
     isCustomDomain ||
-    process.env.NODE_ENV === "development";
+    process.env.NODE_ENV === "development" ||
+    Boolean(process.env.DEFAULT_TENANT_SLUG);
 
   if (hasTenantContext) {
     if (isProtected(pathname) && !user) {

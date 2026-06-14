@@ -16,14 +16,25 @@ export const resolveTenant = cache(
     const { slug, isCustomDomain, host: cleanHost } = parseHost(host);
 
     if (slug) {
-      return prisma.tenant.findUnique({ where: { slug } });
+      const bySlug = await prisma.tenant.findUnique({ where: { slug } });
+      if (bySlug) return bySlug;
     }
     if (isCustomDomain) {
-      return prisma.tenant.findUnique({ where: { customDomain: cleanHost } });
+      const byDomain = await prisma.tenant.findUnique({
+        where: { customDomain: cleanHost },
+      });
+      if (byDomain) return byDomain;
     }
-    // Root domain (no subdomain). In development, fall back to the first tenant
-    // so plain `localhost:3000` works without needing a subdomain. In
-    // production this returns null and the marketing/landing shell is shown.
+    // Single-tenant / root-domain deployments (e.g. a *.vercel.app domain with
+    // no per-tenant subdomains): resolve a configured default tenant.
+    const defaultSlug = process.env.DEFAULT_TENANT_SLUG;
+    if (defaultSlug) {
+      const byDefault = await prisma.tenant.findUnique({
+        where: { slug: defaultSlug },
+      });
+      if (byDefault) return byDefault;
+    }
+    // Dev convenience: plain localhost resolves to the first tenant.
     if (process.env.NODE_ENV === "development") {
       return prisma.tenant.findFirst({ orderBy: { createdAt: "asc" } });
     }
