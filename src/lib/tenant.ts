@@ -34,9 +34,15 @@ export const resolveTenant = cache(
       });
       if (byDefault) return byDefault;
     }
-    // Dev convenience: plain localhost resolves to the first tenant.
-    if (process.env.NODE_ENV === "development") {
-      return prisma.tenant.findFirst({ orderBy: { createdAt: "asc" } });
+    // Auto single-tenant fallback: in development always, and in production when
+    // exactly one tenant exists, serve it on the root domain. Multi-tenant
+    // deployments (2+ tenants, no match) fall through to the marketing page.
+    const someTenants = await prisma.tenant.findMany({
+      take: 2,
+      orderBy: { createdAt: "asc" },
+    });
+    if (process.env.NODE_ENV === "development" || someTenants.length === 1) {
+      return someTenants[0] ?? null;
     }
     return null;
   }
