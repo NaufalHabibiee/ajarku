@@ -1,0 +1,390 @@
+// Prisma schema for the multi-tenant white-label online course platform.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum SubscriptionStatus {
+  active
+  inactive
+}
+
+enum UserRole {
+  student
+  admin
+  superadmin
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  expired
+}
+
+enum PaymentMethod {
+  bank_transfer
+  gopay
+  qris
+}
+
+// ---------------------------------------------------------------------------
+// Tenant — one record per client (instructor)
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id                 String             @id @default(cuid())
+  name               String
+  slug               String             @unique // subdomain
+  customDomain       String?            @unique
+  logoUrl            String?
+  primaryColor       String             @default("#4f46e5")
+  accentColor        String             @default("#22d3ee")
+
+  subscriptionStatus SubscriptionStatus @default(inactive)
+  planExpiry         DateTime?
+
+  // Subscription price students pay for this tenant's course (in IDR).
+  subscriptionPrice  Int                @default(99000)
+
+  // Per-tenant payment credentials (Midtrans).
+  midtransClientKey  String?
+  midtransServerKey  String?
+
+  // Per-tenant video library (Bunny Stream).
+  bunnyLibraryId     String?
+  bunnyApiKey        String?
+
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  users         User[]
+  courses       Course[]
+  subscriptions Subscription[]
+  liveSessions  LiveSession[]
+  forumThreads  ForumThread[]
+  announcements Announcement[]
+  notifications Notification[]
+  faqs          FAQ[]
+
+  @@index([slug])
+  @@index([customDomain])
+}
+
+// ---------------------------------------------------------------------------
+// User — students/admins per tenant
+// ---------------------------------------------------------------------------
+
+model User {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  // Maps to the Supabase Auth user id. Unique per tenant, not globally — the
+  // same Supabase account can be a student across multiple tenant sites.
+  authId             String?
+  email              String
+  name               String?
+  avatarUrl          String?
+  role               UserRole  @default(student)
+
+  isSubscribed       Boolean   @default(false)
+  subscriptionExpiry DateTime?
+  subscriptionId     String?
+
+  // Learning streak tracking (day boundaries computed in WIB).
+  lastLearnedAt      DateTime?
+  currentStreak      Int       @default(0)
+  longestStreak      Int       @default(0)
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  progress      Progress[]
+  subscriptions Subscription[]
+  forumThreads  ForumThread[]
+  forumReplies  ForumReply[]
+  certificates  Certificate[]
+  notifications Notification[]
+  badges        Badge[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, authId])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Course — one course per tenant
+// ---------------------------------------------------------------------------
+
+model Course {
+  id           String   @id @default(cuid())
+  tenantId     String
+  title        String
+  description  String?  @db.Text
+  thumbnailUrl String?
+  isPublished  Boolean  @default(false)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  modules      Module[]
+  certificates Certificate[]
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Module — sections/chapters inside a course
+// ---------------------------------------------------------------------------
+
+model Module {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@index([courseId])
+}
+
+// ---------------------------------------------------------------------------
+// Lesson — individual lessons inside a module
+// ---------------------------------------------------------------------------
+
+model Lesson {
+  id            String   @id @default(cuid())
+  moduleId      String
+  title         String
+  description   String?  @db.Text
+  order         Int      @default(0)
+
+  videoId       String? // Bunny Stream video id
+  videoDuration Int? // seconds
+
+  isFree        Boolean  @default(false) // max 2 free lessons per course
+  attachments   Json     @default("[]") // array of { name, url, size }
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  module       Module        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress     Progress[]
+  forumThreads ForumThread[]
+
+  @@index([moduleId])
+}
+
+// ---------------------------------------------------------------------------
+// Progress — tracks student progress
+// ---------------------------------------------------------------------------
+
+model Progress {
+  id             String    @id @default(cuid())
+  userId         String
+  lessonId       String
+  completedAt    DateTime?
+  watchedSeconds Int       @default(0)
+  updatedAt      DateTime  @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Subscription — payment records
+// ---------------------------------------------------------------------------
+
+model Subscription {
+  id                    String         @id @default(cuid())
+  tenantId              String
+  userId                String
+  amount                Int
+  status                PaymentStatus  @default(pending)
+
+  midtransOrderId       String         @unique
+  midtransTransactionId String?
+  paymentMethod         PaymentMethod?
+
+  paidAt                DateTime?
+  expiresAt             DateTime?
+  createdAt             DateTime       @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// LiveSession — scheduled webinars/live classes
+// ---------------------------------------------------------------------------
+
+model LiveSession {
+  id           String   @id @default(cuid())
+  tenantId     String
+  title        String
+  description  String?  @db.Text
+  scheduledAt  DateTime
+  meetUrl      String?
+  recordingUrl String?
+  createdAt    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// ForumThread — community discussions
+// ---------------------------------------------------------------------------
+
+model ForumThread {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  lessonId  String?
+  title     String
+  body      String   @db.Text
+  isPinned  Boolean  @default(false)
+  views     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson  Lesson?      @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  replies ForumReply[]
+
+  @@index([tenantId])
+  @@index([lessonId])
+}
+
+// ---------------------------------------------------------------------------
+// ForumReply — replies to threads
+// ---------------------------------------------------------------------------
+
+model ForumReply {
+  id                String   @id @default(cuid())
+  threadId          String
+  userId            String
+  body              String   @db.Text
+  isInstructorReply Boolean  @default(false)
+  upvotes           Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  thread ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+}
+
+// ---------------------------------------------------------------------------
+// Announcement — instructor announcements
+// ---------------------------------------------------------------------------
+
+model Announcement {
+  id        String   @id @default(cuid())
+  tenantId  String
+  title     String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Certificate — issued on course completion
+// ---------------------------------------------------------------------------
+
+model Certificate {
+  id               String   @id @default(cuid())
+  userId           String
+  courseId         String
+  verificationCode String   @unique
+  issuedAt         DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+// ---------------------------------------------------------------------------
+// Notification — in-app notifications (announcements, forum replies, streak,
+// live-soon, lesson-unlocked, achievements). `refId` makes generation
+// idempotent (e.g. one per announcement / per day / per badge).
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      String // announcement | forum_reply | live_soon | streak_risk | lesson_unlocked | achievement
+  title     String
+  body      String   @db.Text
+  link      String?
+  refId     String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, refId])
+  @@index([userId, isRead])
+  @@index([tenantId])
+}
+
+// ---------------------------------------------------------------------------
+// Badge — achievements earned by a user.
+// ---------------------------------------------------------------------------
+
+model Badge {
+  id       String   @id @default(cuid())
+  userId   String
+  badgeKey String // pelajar_perdana | konsisten_7 | aktif_forum | setengah_jalan | lulus | berlangganan
+  earnedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeKey])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// FAQ — per-tenant frequently asked questions, editable by the instructor.
+// ---------------------------------------------------------------------------
+
+model FAQ {
+  id        String   @id @default(cuid())
+  tenantId  String
+  question  String   @db.Text
+  answer    String   @db.Text
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
