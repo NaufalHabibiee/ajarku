@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AjarKu — White-Label Online Course Platform
 
-## Getting Started
+A multi-tenant SaaS where each instructor (tenant) gets their own branded course
+site. Students register, subscribe monthly, and access video lessons, live
+sessions, a community forum, and certificates — all scoped per tenant.
 
-First, run the development server:
+## ✨ Features
+
+- **Multi-tenant** — each client resolved by subdomain (`acme.domain.com`) or
+  custom domain; data scoped per tenant. Single-domain deploys supported via
+  `DEFAULT_TENANT_SLUG`.
+- **Auth** — Supabase Auth (email/password + magic link), per-tenant user
+  provisioning, role-based access (student / admin / superadmin).
+- **Learning** — curriculum with free/paid gating, Bunny Stream video player
+  with progress tracking (resume + 90% completion), downloadable attachments.
+- **Payments** — Midtrans Snap (VA / GoPay / QRIS), signature-verified webhook,
+  verify-on-return, subscription activation.
+- **Engagement** — learning streaks, weekly/monthly stats, achievement badges,
+  in-app notifications, announcements.
+- **Community** — forum with search/filter/sort, threads + replies, instructor
+  badges, upvotes, view counts.
+- **Live sessions**, **certificates** (PDF + public verification), **admin**
+  (curriculum, lessons, FAQ, live, announcements, subscribers, branding) and
+  **super-admin** (tenants, billing, analytics) panels.
+- **Polish** — dark mode, responsive, collapsible teal sidebar, toasts, loading
+  skeletons, error boundaries.
+
+## 🧱 Tech Stack
+
+| Layer | Tech |
+|-------|------|
+| Framework | Next.js 14 (App Router) + TypeScript |
+| Styling | Tailwind CSS + shadcn/ui (radix) |
+| Database | PostgreSQL via Prisma 6 |
+| Auth | Supabase Auth |
+| Video | Bunny Stream |
+| Payments | Midtrans |
+| Email | Resend |
+| Tests | Vitest + Testing Library |
+| Deploy | Vercel |
+
+## 🚀 Getting Started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. Install
+npm install
+
+# 2. Configure environment
+cp .env.example .env   # then fill in the values (see below)
+
+# 3. Set up the database
+npm run db:migrate     # apply migrations
+npm run db:seed        # demo tenant + admin + sample course
+
+# 4. Run
+npm run dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> In development, plain `localhost:3000` resolves to the first tenant, so no
+> subdomain is needed. Demo login: `admin@demo.test` / `password123`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Required environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+See [`.env.example`](.env.example) for the full list. Minimum to run:
+`DATABASE_URL`, `DIRECT_URL`, `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 
-## Learn More
+Validate them anytime with:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run check:env
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📜 Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start the dev server |
+| `npm run build` / `start` | Production build / serve |
+| `npm run test` | Run the unit test suite (Vitest) |
+| `npm run test:watch` | Tests in watch mode |
+| `npm run lint` | ESLint |
+| `npm run check:env` | Validate environment variables |
+| `npm run db:migrate` / `db:seed` / `db:studio` | Prisma helpers |
 
-## Deploy on Vercel
+## ☁️ Deployment (Vercel)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push to the `main` branch (auto-deploys).
+2. Set all env vars in **Project → Settings → Environment Variables** (Production).
+   - `NEXT_PUBLIC_SUPABASE_URL` must be the bare project URL (no `/rest/v1`).
+   - For a single-domain deploy, set `DEFAULT_TENANT_SLUG` and
+     `NEXT_PUBLIC_ROOT_DOMAIN` to your Vercel domain.
+   - Use the Supabase **transaction pooler** (`:6543`) for `DATABASE_URL`; the
+     app auto-appends `pgbouncer=true`.
+3. Colocate the function region with your database (see `vercel.json`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📚 More docs
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — multi-tenant design, data model, flows.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev workflow & conventions.
