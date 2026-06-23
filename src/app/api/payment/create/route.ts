@@ -7,12 +7,23 @@ import {
   generateOrderId,
   getMidtransConfig,
 } from "@/lib/midtrans";
+import { rateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Throttle payment creation per user (max 5 / minute).
+  const limit = rateLimit(`payment:${user.id}`, 5, 60_000);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Terlalu banyak percobaan. Coba lagi sebentar." },
+      { status: 429, headers: { "Retry-After": "60" } }
+    );
+  }
+
   const tenant = await requireTenant();
 
   const config = getMidtransConfig(tenant);

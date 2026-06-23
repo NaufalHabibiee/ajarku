@@ -1,3 +1,4 @@
+import "./env"; // validate environment variables on server startup
 import { PrismaClient } from "@prisma/client";
 
 // Reuse a single PrismaClient across hot reloads in development to avoid

@@ -5,6 +5,7 @@ import {
   TENANT_HOST_HEADER,
   TENANT_SLUG_HEADER,
 } from "@/lib/tenant-host";
+import { logger, errorMessage } from "@/lib/logger";
 
 // Route prefixes that require an authenticated user.
 const PROTECTED_PREFIXES = [
@@ -40,56 +41,67 @@ export async function middleware(request: NextRequest) {
 
   let response = NextResponse.next({ request: { headers: requestHeaders } });
 
-  // Refresh the Supabase auth session and mirror cookies onto the response.
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
+  try {
+    // Refresh the Supabase auth session and mirror cookies onto the response.
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            response = NextResponse.next({
+              request: { headers: requestHeaders },
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
         },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          response = NextResponse.next({ request: { headers: requestHeaders } });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
+      }
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    // Only apply auth-based redirects when we have a tenant context. On the bare
+    // root domain (no subdomain / custom domain) there is no tenant, so the app
+    // can't resolve a user — redirecting here would create an infinite loop
+    // (/login -> /dashboard -> /login). In development we treat the root domain
+    // as having context because resolveTenant() falls back to the first tenant.
+    const hasTenantContext =
+      Boolean(slug) ||
+      isCustomDomain ||
+      process.env.NODE_ENV === "development" ||
+      Boolean(process.env.DEFAULT_TENANT_SLUG);
+
+    if (hasTenantContext) {
+      if (isProtected(pathname) && !user) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("next", pathname);
+        return NextResponse.redirect(url);
+      }
+
+      if (user && AUTH_PAGES.includes(pathname)) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/dashboard";
+        return NextResponse.redirect(url);
+      }
     }
-  );
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Only apply auth-based redirects when we have a tenant context. On the bare
-  // root domain (no subdomain / custom domain) there is no tenant, so the app
-  // can't resolve a user — redirecting here would create an infinite loop
-  // (/login -> /dashboard -> /login). In development we treat the root domain
-  // as having context because resolveTenant() falls back to the first tenant.
-  const hasTenantContext =
-    Boolean(slug) ||
-    isCustomDomain ||
-    process.env.NODE_ENV === "development" ||
-    Boolean(process.env.DEFAULT_TENANT_SLUG);
-
-  if (hasTenantContext) {
-    if (isProtected(pathname) && !user) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
-    }
-
-    if (user && AUTH_PAGES.includes(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
-    }
+  } catch (error) {
+    // Never let a transient auth/network error blank the whole app — fall open
+    // and let the page-level guards handle authentication.
+    logger.warn("middleware session refresh failed", {
+      pathname,
+      error: errorMessage(error),
+    });
   }
 
   return response;

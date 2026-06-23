@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "build": "prisma generate && next build",
-  "start": "next start",
-  "lint": "next lint",
-  "postinstall": "prisma generate",
-  "db:migrate": "prisma migrate dev",
-  "db:push": "prisma db push",
-  "db:seed": "tsx prisma/seed.ts",
-  "db:studio": "prisma studio"
-},
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check:env": "tsx scripts/check-env.ts",
+    "postinstall": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
+  },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
@@ -50,17 +54,23 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@vitejs/plugin-react-swc": "^4.3.1",
     "dotenv": "^17.4.2",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "jsdom": "^29.1.1",
     "postcss": "^8",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.9"
   }
 }

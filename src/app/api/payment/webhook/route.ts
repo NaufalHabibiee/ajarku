@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMidtransConfig, verifyWebhookSignature } from "@/lib/midtrans";
 import { applyTransactionResult } from "@/lib/payment";
+import { withApiErrorHandling } from "@/lib/error-handler";
 
-export async function POST(request: Request) {
+export const POST = withApiErrorHandling(async (request: Request) => {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -54,4 +55,4 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json({ ok: true });
-}
+}, "payment webhook");

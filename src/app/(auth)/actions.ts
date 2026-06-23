@@ -4,8 +4,17 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  signInSchema,
+  signUpSchema,
+  magicLinkSchema,
+} from "@/lib/validations/auth";
 
 export type AuthState = { error?: string; success?: string };
+
+function firstError(error: { issues: { message: string }[] }): string {
+  return error.issues[0]?.message ?? "Input tidak valid.";
+}
 
 function getOrigin(host: string | null): string {
   const proto =
@@ -17,13 +26,14 @@ export async function signIn(
   _prev: AuthState,
   formData: FormData
 ): Promise<AuthState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "/dashboard");
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
-  }
+  const parsed = signInSchema.safeParse({
+    email: formData.get("email"),
+    password: formData.get("password"),
+  });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+  const { email, password } = parsed.data;
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -37,16 +47,13 @@ export async function signUp(
   _prev: AuthState,
   formData: FormData
 ): Promise<AuthState> {
-  const name = String(formData.get("name") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-
-  if (!name || !email || !password) {
-    return { error: "All fields are required." };
-  }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
+  const parsed = signUpSchema.safeParse({
+    name: formData.get("name"),
+    email: formData.get("email"),
+    password: formData.get("password"),
+  });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+  const { name, email, password } = parsed.data;
 
   const host = (await headers()).get("host");
   const supabase = await createClient();
@@ -76,8 +83,9 @@ export async function signInWithMagicLink(
   _prev: AuthState,
   formData: FormData
 ): Promise<AuthState> {
-  const email = String(formData.get("email") ?? "").trim();
-  if (!email) return { error: "Email is required." };
+  const parsed = magicLinkSchema.safeParse({ email: formData.get("email") });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+  const { email } = parsed.data;
 
   const host = (await headers()).get("host");
   const supabase = await createClient();
